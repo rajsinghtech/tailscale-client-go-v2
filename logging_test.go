@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestClient_LogstreamConfiguration(t *testing.T) {
@@ -129,3 +131,88 @@ func TestClient_ValidateAWSTrustPolicy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.EqualValues(t, gotRequest, map[string]string{"roleArn": roleARN})
 }
+
+func TestClient_GetNetworkFlowLogs(t *testing.T) {
+	t.Parallel()
+
+	client, server := NewTestHarness(t)
+	server.ResponseCode = http.StatusOK
+
+	logged1, err := time.Parse(time.RFC3339, "2024-06-06T15:27:26.583893Z")
+	require.NoError(t, err)
+	start1, err := time.Parse(time.RFC3339, "2024-06-06T15:25:26.583893Z")
+	require.NoError(t, err)
+	end1, err := time.Parse(time.RFC3339, "2024-06-06T15:26:26.583893Z")
+	require.NoError(t, err)
+	logged2, err := time.Parse(time.RFC3339, "2024-06-06T15:28:26.583893Z")
+	require.NoError(t, err)
+	start2, err := time.Parse(time.RFC3339, "2024-06-06T15:26:26.583893Z")
+	require.NoError(t, err)
+	end2, err := time.Parse(time.RFC3339, "2024-06-06T15:27:26.583893Z")
+	require.NoError(t, err)
+	requestStart, err := time.Parse(time.RFC3339, "2024-06-06T15:00:00Z")
+	require.NoError(t, err)
+	requestEnd, err := time.Parse(time.RFC3339, "2024-06-06T16:00:00Z")
+	require.NoError(t, err)
+
+	expectedResponse := &NetworkFlowLogsResponse{
+		Logs: []NetworkFlowLog{
+			{
+				Logged: logged1,
+				NodeID: "nBLYviWLGB21DEVEL",
+				Start:  start1,
+				End:    end1,
+				VirtualTraffic: []TrafficStats{
+					{
+						Proto:   6,
+						Src:     "108.86.185.125:52343",
+						Dst:     "108.86.185.126:443",
+						TxPkts:  10,
+						TxBytes: 10000,
+						RxPkts:  10,
+						RxBytes: 5000,
+					},
+					{
+						Proto:   6,
+						Src:     "[fd7a:115c:a1e0::1]:22",
+						Dst:     "[fd7a:115c:a1e0::2]:22",
+						TxPkts:  5,
+						TxBytes: 2500,
+						RxPkts:  5,
+						RxBytes: 2500,
+					},
+				},
+			},
+			{
+				Logged: logged2,
+				NodeID: "nABCDEFGHIJKLMNOP",
+				Start:  start2,
+				End:    end2,
+				VirtualTraffic: []TrafficStats{
+					{
+						Proto:   6,
+						Src:     "10.0.0.1:8080",
+						Dst:     "10.0.0.2:8080",
+						TxPkts:  100,
+						TxBytes: 50000,
+						RxPkts:  100,
+						RxBytes: 50000,
+					},
+				},
+			},
+		},
+	}
+	server.ResponseBody = expectedResponse
+
+	params := NetworkFlowLogsRequest{
+		Start: requestStart,
+		End:   requestEnd,
+	}
+	actualResponse, err := client.Logging().GetNetworkFlowLogs(context.Background(), params)
+	assert.NoError(t, err)
+	assert.Equal(t, http.MethodGet, server.Method)
+	assert.Equal(t, "/api/v2/tailnet/example.com/logging/network", server.Path)
+	
+	assert.Equal(t, expectedResponse, actualResponse)
+}
+

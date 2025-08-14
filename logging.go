@@ -6,6 +6,7 @@ package tailscale
 import (
 	"context"
 	"net/http"
+	"time"
 )
 
 // LoggingResource provides access to https://tailscale.com/api#tag/logging.
@@ -146,4 +147,61 @@ func (lr *LoggingResource) ValidateAWSTrustPolicy(ctx context.Context, awsExtern
 		return err
 	}
 	return lr.do(req, nil)
+}
+
+// NetworkFlowLog represents a network flow log entry from the Tailscale API.
+type NetworkFlowLog struct {
+	Logged time.Time `json:"logged"`
+	NodeID string    `json:"nodeId"`
+	Start  time.Time `json:"start"`
+	End    time.Time `json:"end"`
+	VirtualTraffic  []TrafficStats `json:"virtualTraffic,omitempty"`
+	SubnetTraffic   []TrafficStats `json:"subnetTraffic,omitempty"`
+	ExitTraffic     []TrafficStats `json:"exitTraffic,omitempty"`
+	PhysicalTraffic []TrafficStats `json:"physicalTraffic,omitempty"`
+}
+
+// TrafficStats represents traffic flow statistics.
+// This type is used for all traffic types: virtual, subnet, exit, and physical.
+type TrafficStats struct {
+	Proto   int    `json:"proto,omitempty"`   // IP protocol number (e.g., 6 for TCP, 17 for UDP)
+	Src     string `json:"src,omitempty"`     // Source address and port
+	Dst     string `json:"dst,omitempty"`     // Destination address and port
+	TxPkts  uint64 `json:"txPkts,omitempty"`  // Transmitted packets
+	TxBytes uint64 `json:"txBytes,omitempty"` // Transmitted bytes
+	RxPkts  uint64 `json:"rxPkts,omitempty"`  // Received packets
+	RxBytes uint64 `json:"rxBytes,omitempty"` // Received bytes
+}
+
+// NetworkFlowLogsResponse represents the response from the network flow logs endpoint.
+type NetworkFlowLogsResponse struct {
+	Logs []NetworkFlowLog `json:"logs"`
+}
+
+// NetworkFlowLogsRequest represents query parameters for fetching network flow logs.
+type NetworkFlowLogsRequest struct {
+	Start time.Time // Start time for the log query (required)
+	End   time.Time // End time for the log query (required)
+}
+
+// GetNetworkFlowLogs retrieves network flow logs for the tailnet.
+// Both start and end parameters are required by the backend API.
+// Times should be within the last 30 days (older times will be adjusted by the server).
+func (lr *LoggingResource) GetNetworkFlowLogs(ctx context.Context, params NetworkFlowLogsRequest) (*NetworkFlowLogsResponse, error) {
+	url := lr.buildTailnetURL("logging", "network")
+	q := url.Query()
+	if !params.Start.IsZero() {
+		q.Set("start", params.Start.Format(time.RFC3339))
+	}
+	if !params.End.IsZero() {
+		q.Set("end", params.End.Format(time.RFC3339))
+	}
+	url.RawQuery = q.Encode()
+
+	req, err := lr.buildRequest(ctx, http.MethodGet, url)
+	if err != nil {
+		return nil, err
+	}
+
+	return body[NetworkFlowLogsResponse](lr, req)
 }
